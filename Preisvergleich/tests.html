@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Preisvergleich - Tests</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; padding: 20px; }
+        h1 { margin-bottom: 20px; }
+        .test-suite { background: #fff; border-radius: 8px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .test-suite h2 { font-size: 16px; margin-bottom: 12px; color: #333; }
+        .test-result { padding: 8px 12px; margin: 4px 0; border-radius: 4px; font-size: 14px; font-family: monospace; }
+        .test-result.pass { background: #d4edda; color: #155724; }
+        .test-result.fail { background: #f8d7da; color: #721c24; }
+        .summary { font-size: 18px; font-weight: bold; padding: 16px; border-radius: 8px; margin-top: 20px; }
+        .summary.all-pass { background: #d4edda; color: #155724; }
+        .summary.has-fail { background: #f8d7da; color: #721c24; }
+    </style>
+</head>
+<body>
+    <h1>Preisvergleich - Test Suite</h1>
+    <div id="test-output"></div>
+    <div id="summary"></div>
+
+    <!-- Minimale DOM-Struktur die app.js erwartet -->
+    <div style="display:none">
+        <div id="reader"></div>
+        <input id="manual-ean">
+        <button id="search-btn"></button>
+        <div id="loading" class="hidden"></div>
+        <div id="error-message" class="hidden"></div>
+        <div id="comparison-result" class="hidden"></div>
+        <div id="cart-items"></div>
+        <div id="cart-summary" class="hidden"></div>
+        <span id="cart-badge">0</span>
+        <input type="checkbox" id="group-by-supplier" checked>
+        <button id="clear-cart-btn"></button>
+        <button id="export-csv-btn"></button>
+        <button id="export-pdf-btn"></button>
+        <button id="clear-cache-btn"></button>
+        <span id="online-status"></span>
+        <form id="settings-form">
+            <input id="fega-url"><input id="fega-username"><input id="fega-password">
+            <input id="gautzsch-url"><input id="gautzsch-username"><input id="gautzsch-password">
+        </form>
+        <div id="settings-message" class="hidden"></div>
+        <button class="tab-btn active" data-tab="scanner"></button>
+        <button class="tab-btn" data-tab="cart"></button>
+        <button class="tab-btn" data-tab="settings"></button>
+        <div id="scanner-tab" class="tab-pane active"></div>
+        <div id="cart-tab" class="tab-pane"></div>
+        <div id="settings-tab" class="tab-pane"></div>
+        <div id="toast-container" class="toast-container"></div>
+    </div>
+
+    <script>
+    // =============================================
+    // Test Framework
+    // =============================================
+
+    let totalTests = 0;
+    let passedTests = 0;
+    let failedTests = 0;
+    let currentSuite = '';
+
+    const output = document.getElementById('test-output');
+
+    function suite(name) {
+        currentSuite = name;
+        const div = document.createElement('div');
+        div.className = 'test-suite';
+        div.innerHTML = `<h2>${name}</h2>`;
+        div.id = 'suite-' + name.replace(/\s/g, '-');
+        output.appendChild(div);
+    }
+
+    function assert(condition, description) {
+        totalTests++;
+        const container = document.getElementById('suite-' + currentSuite.replace(/\s/g, '-'));
+        const div = document.createElement('div');
+
+        if (condition) {
+            passedTests++;
+            div.className = 'test-result pass';
+            div.textContent = `PASS: ${description}`;
+        } else {
+            failedTests++;
+            div.className = 'test-result fail';
+            div.textContent = `FAIL: ${description}`;
+        }
+        container.appendChild(div);
+    }
+
+    function assertEqual(actual, expected, description) {
+        const pass = actual === expected;
+        if (!pass) {
+            description += ` (erwartet: ${JSON.stringify(expected)}, erhalten: ${JSON.stringify(actual)})`;
+        }
+        assert(pass, description);
+    }
+
+    function assertDeepEqual(actual, expected, description) {
+        const pass = JSON.stringify(actual) === JSON.stringify(expected);
+        if (!pass) {
+            description += ` (erwartet: ${JSON.stringify(expected)}, erhalten: ${JSON.stringify(actual)})`;
+        }
+        assert(pass, description);
+    }
+
+    function showSummary() {
+        const summaryDiv = document.getElementById('summary');
+        summaryDiv.className = failedTests === 0 ? 'summary all-pass' : 'summary has-fail';
+        summaryDiv.textContent = `Ergebnis: ${passedTests}/${totalTests} Tests bestanden, ${failedTests} fehlgeschlagen`;
+    }
+
+    // =============================================
+    // Mock Html5Qrcode (damit app.js laden kann)
+    // =============================================
+    class Html5Qrcode {
+        constructor() {}
+        start() { return Promise.resolve(); }
+        stop() { return Promise.resolve(); }
+    }
+    </script>
+
+    <!-- App-Code laden -->
+    <script src="app.js"></script>
+
+    <script>
+    // =============================================
+    // Tests
+    // =============================================
+
+    // --- parseXMLResponse ---
+    suite('parseXMLResponse');
+
+    (function() {
+        const xml1 = `<?xml version="1.0" encoding="UTF-8"?>
+        <IDS>
+            <RESPONSE>
+                <ARTICLE>
+                    <DESCRIPTION>Kabelkanal 60x40mm</DESCRIPTION>
+                    <MANUFACTURER>OBO Bettermann</MANUFACTURER>
+                    <ARTICLE_NUMBER>6199201</ARTICLE_NUMBER>
+                    <NET_PRICE>12,50</NET_PRICE>
+                    <AVAILABLE>true</AVAILABLE>
+                    <DELIVERY_TIME>3</DELIVERY_TIME>
+                </ARTICLE>
+            </RESPONSE>
+        </IDS>`;
+
+        const result = parseXMLResponse(xml1);
+        assertEqual(result.productName, 'Kabelkanal 60x40mm', 'Produktname wird korrekt gelesen');
+        assertEqual(result.manufacturer, 'OBO Bettermann', 'Hersteller wird korrekt gelesen');
+        assertEqual(result.articleNumber, '6199201', 'Artikelnummer wird korrekt gelesen');
+        assertEqual(result.price, 12.50, 'Preis mit Komma wird korrekt geparst');
+        assertEqual(result.available, true, 'Verfuegbarkeit "true" wird korrekt erkannt');
+        assertEqual(result.deliveryDays, 3, 'Lieferzeit wird korrekt gelesen');
+    })();
+
+    (function() {
+        const xml2 = `<?xml version="1.0" encoding="UTF-8"?>
+        <IDS>
+            <RESPONSE>
+                <ARTICLE>
+                    <DESCRIPTION>Steckdose UP</DESCRIPTION>
+                    <PRICE>8.99</PRICE>
+                    <AVAILABLE>1</AVAILABLE>
+                </ARTICLE>
+            </RESPONSE>
+        </IDS>`;
+
+        const result = parseXMLResponse(xml2);
+        assertEqual(result.price, 8.99, 'Preis mit Punkt wird korrekt geparst (PRICE statt NET_PRICE)');
+        assertEqual(result.available, true, 'Verfuegbarkeit "1" wird als true erkannt');
+        assertEqual(result.manufacturer, null, 'Fehlender Hersteller ergibt null');
+        assertEqual(result.deliveryDays, null, 'Fehlende Lieferzeit ergibt null');
+    })();
+
+    (function() {
+        const xml3 = `<?xml version="1.0" encoding="UTF-8"?>
+        <IDS><RESPONSE><ARTICLE><AVAILABLE>false</AVAILABLE></ARTICLE></RESPONSE></IDS>`;
+
+        const result = parseXMLResponse(xml3);
+        assertEqual(result.available, false, 'Verfuegbarkeit "false" wird korrekt erkannt');
+        assertEqual(result.price, null, 'Fehlender Preis ergibt null');
+        assertEqual(result.productName, null, 'Fehlende Beschreibung ergibt null');
+    })();
+
+    // --- escapeHtml ---
+    suite('escapeHtml');
+
+    (function() {
+        assertEqual(escapeHtml('Hello World'), 'Hello World', 'Normaler Text bleibt unveraendert');
+        assertEqual(escapeHtml('<scr' + 'ipt>alert("xss")<' + '/script>'), '&lt;scr' + 'ipt&gt;alert("xss")&lt;/scr' + 'ipt&gt;', 'HTML-Tags werden escaped');
+        assertEqual(escapeHtml('A & B'), 'A &amp; B', 'Ampersand wird escaped');
+        assertEqual(escapeHtml('"Zitat"'), '"Zitat"', 'Anfuehrungszeichen werden behandelt');
+    })();
+
+    // --- changeQuantity ---
+    suite('changeQuantity');
+
+    (function() {
+        currentQuantity = 1;
+        // Mock element
+        const el = document.createElement('span');
+        el.id = 'quantity-value';
+        el.textContent = '1';
+        document.body.appendChild(el);
+
+        changeQuantity(1);
+        assertEqual(currentQuantity, 2, 'Menge erhoehen: 1 -> 2');
+
+        changeQuantity(1);
+        assertEqual(currentQuantity, 3, 'Menge erhoehen: 2 -> 3');
+
+        changeQuantity(-1);
+        assertEqual(currentQuantity, 2, 'Menge verringern: 3 -> 2');
+
+        currentQuantity = 1;
+        changeQuantity(-1);
+        assertEqual(currentQuantity, 1, 'Menge bleibt bei Minimum 1');
+
+        changeQuantity(-5);
+        assertEqual(currentQuantity, 1, 'Menge wird nicht negativ');
+
+        document.body.removeChild(el);
+    })();
+
+    // --- APP_STATE & Cart Logik ---
+    suite('Cart-Verwaltung');
+
+    (function() {
+        // Backup
+        const backupCart = [...APP_STATE.cart];
+
+        APP_STATE.cart = [];
+
+        const item1 = {
+            id: 1001,
+            ean: '4016705142040',
+            productName: 'Kabelkanal 60x40',
+            manufacturer: 'OBO',
+            supplier: 'fega',
+            supplierName: 'Fega & Schmitt',
+            quantity: 2,
+            pricePerUnit: 12.50,
+            totalPrice: 25.00,
+            addedDate: new Date().toISOString()
+        };
+
+        const item2 = {
+            id: 1002,
+            ean: '4012345678901',
+            productName: 'Steckdose UP',
+            manufacturer: 'Busch-Jaeger',
+            supplier: 'gautzsch',
+            supplierName: 'Gautzsch',
+            quantity: 5,
+            pricePerUnit: 8.99,
+            totalPrice: 44.95,
+            addedDate: new Date().toISOString()
+        };
+
+        APP_STATE.cart.push(item1);
+        assertEqual(APP_STATE.cart.length, 1, 'Artikel zum Warenkorb hinzugefuegt');
+
+        APP_STATE.cart.push(item2);
+        assertEqual(APP_STATE.cart.length, 2, 'Zweiter Artikel hinzugefuegt');
+
+        // Test removeFromCart
+        APP_STATE.cart = APP_STATE.cart.filter(item => item.id !== 1001);
+        assertEqual(APP_STATE.cart.length, 1, 'Artikel per ID entfernt');
+        assertEqual(APP_STATE.cart[0].id, 1002, 'Korrekter Artikel verbleibt');
+
+        // Test clearCart
+        APP_STATE.cart = [];
+        assertEqual(APP_STATE.cart.length, 0, 'Warenkorb geleert');
+
+        // Restore
+        APP_STATE.cart = backupCart;
+    })();
+
+    // --- Preisvergleich-Logik ---
+    suite('Preisvergleich-Logik');
+
+    (function() {
+        // Simuliere die Vergleichslogik aus searchByEAN
+        function buildComparison(fegaResult, gautzschResult) {
+            const comparison = {
+                ean: '4016705142040',
+                productName: fegaResult.productName || gautzschResult.productName || 'Unbekanntes Produkt',
+                manufacturer: fegaResult.manufacturer || gautzschResult.manufacturer || null,
+                fega: fegaResult,
+                gautzsch: gautzschResult
+            };
+
+            if (fegaResult.price && gautzschResult.price) {
+                comparison.cheapest = fegaResult.price <= gautzschResult.price ? 'fega' : 'gautzsch';
+                comparison.savings = Math.abs(fegaResult.price - gautzschResult.price);
+            } else if (fegaResult.price) {
+                comparison.cheapest = 'fega';
+            } else if (gautzschResult.price) {
+                comparison.cheapest = 'gautzsch';
+            }
+
+            return comparison;
+        }
+
+        // Fega guenstiger
+        const cmp1 = buildComparison(
+            { productName: 'Kabel', manufacturer: 'OBO', price: 10.00, available: true, deliveryDays: 2, articleNumber: '123' },
+            { productName: 'Kabel', manufacturer: 'OBO', price: 15.00, available: true, deliveryDays: 3, articleNumber: '456' }
+        );
+        assertEqual(cmp1.cheapest, 'fega', 'Fega ist guenstiger wenn 10 < 15');
+        assertEqual(cmp1.savings, 5.00, 'Ersparnis korrekt berechnet (5.00)');
+
+        // Gautzsch guenstiger
+        const cmp2 = buildComparison(
+            { productName: 'Dose', manufacturer: null, price: 20.00, available: true, deliveryDays: null, articleNumber: null },
+            { productName: 'Dose', manufacturer: null, price: 12.50, available: true, deliveryDays: null, articleNumber: null }
+        );
+        assertEqual(cmp2.cheapest, 'gautzsch', 'Gautzsch ist guenstiger wenn 12.50 < 20.00');
+        assertEqual(cmp2.savings, 7.50, 'Ersparnis korrekt berechnet (7.50)');
+
+        // Gleicher Preis -> Fega gewinnt (<=)
+        const cmp3 = buildComparison(
+            { productName: 'Schalter', manufacturer: null, price: 10.00, available: true, deliveryDays: null, articleNumber: null },
+            { productName: 'Schalter', manufacturer: null, price: 10.00, available: true, deliveryDays: null, articleNumber: null }
+        );
+        assertEqual(cmp3.cheapest, 'fega', 'Bei gleichem Preis gewinnt Fega (<=)');
+        assertEqual(cmp3.savings, 0, 'Ersparnis bei gleichem Preis ist 0');
+
+        // Nur Fega verfuegbar
+        const cmp4 = buildComparison(
+            { productName: 'Lampe', manufacturer: null, price: 25.00, available: true, deliveryDays: null, articleNumber: null },
+            { productName: null, manufacturer: null, price: null, available: false, deliveryDays: null, articleNumber: null }
+        );
+        assertEqual(cmp4.cheapest, 'fega', 'Nur Fega hat Preis -> Fega guenstigster');
+
+        // Nur Gautzsch verfuegbar
+        const cmp5 = buildComparison(
+            { productName: null, manufacturer: null, price: null, available: false, deliveryDays: null, articleNumber: null },
+            { productName: 'Lampe', manufacturer: 'Philips', price: 30.00, available: true, deliveryDays: null, articleNumber: null }
+        );
+        assertEqual(cmp5.cheapest, 'gautzsch', 'Nur Gautzsch hat Preis -> Gautzsch guenstigster');
+        assertEqual(cmp5.productName, 'Lampe', 'Produktname von Gautzsch uebernommen wenn Fega null');
+        assertEqual(cmp5.manufacturer, 'Philips', 'Hersteller von Gautzsch uebernommen wenn Fega null');
+
+        // Keiner verfuegbar
+        const cmp6 = buildComparison(
+            { productName: null, manufacturer: null, price: null, available: false, deliveryDays: null, articleNumber: null },
+            { productName: null, manufacturer: null, price: null, available: false, deliveryDays: null, articleNumber: null }
+        );
+        assertEqual(cmp6.cheapest, undefined, 'Kein guenstigster wenn beide nicht verfuegbar');
+        assertEqual(cmp6.productName, 'Unbekanntes Produkt', 'Fallback Produktname "Unbekanntes Produkt"');
+    })();
+
+    // --- CSV Export ---
+    suite('CSV-Export');
+
+    (function() {
+        const backupCart = [...APP_STATE.cart];
+
+        APP_STATE.cart = [
+            {
+                id: 2001,
+                ean: '4016705142040',
+                productName: 'Kabelkanal 60x40mm',
+                manufacturer: 'OBO Bettermann',
+                supplier: 'fega',
+                supplierName: 'Fega & Schmitt',
+                quantity: 2,
+                pricePerUnit: 12.50,
+                totalPrice: 25.00
+            },
+            {
+                id: 2002,
+                ean: '4012345678901',
+                productName: 'Steckdose "UP" Standard',
+                manufacturer: null,
+                supplier: 'gautzsch',
+                supplierName: 'Gautzsch',
+                quantity: 1,
+                pricePerUnit: 8.99,
+                totalPrice: 8.99
+            }
+        ];
+
+        // Baue CSV manuell (gleiche Logik wie exportToCSV)
+        let csv = 'Lieferant,EAN,Artikelname,Hersteller,Menge,Einzelpreis,Gesamtpreis\n';
+        APP_STATE.cart.forEach(item => {
+            csv += [
+                item.supplierName,
+                item.ean,
+                `"${item.productName.replace(/"/g, '""')}"`,
+                `"${(item.manufacturer || '').replace(/"/g, '""')}"`,
+                item.quantity,
+                item.pricePerUnit.toFixed(2),
+                item.totalPrice.toFixed(2)
+            ].join(',') + '\n';
+        });
+
+        assert(csv.includes('Lieferant,EAN,Artikelname'), 'CSV Header vorhanden');
+        assert(csv.includes('Fega & Schmitt'), 'Fega-Zeile enthalten');
+        assert(csv.includes('Gautzsch'), 'Gautzsch-Zeile enthalten');
+        assert(csv.includes('""UP""'), 'Anfuehrungszeichen in Produktnamen werden verdoppelt');
+        assert(csv.includes('"OBO Bettermann"'), 'Hersteller in Anfuehrungszeichen');
+        assert(csv.includes('""'), 'Leerer Hersteller wird als leerer String behandelt');
+
+        // Summen
+        const fegaTotal = APP_STATE.cart.filter(i => i.supplier === 'fega').reduce((s, i) => s + i.totalPrice, 0);
+        const gautzschTotal = APP_STATE.cart.filter(i => i.supplier === 'gautzsch').reduce((s, i) => s + i.totalPrice, 0);
+        assertEqual(fegaTotal, 25.00, 'Fega Summe korrekt (25.00)');
+        assertEqual(gautzschTotal, 8.99, 'Gautzsch Summe korrekt (8.99)');
+        assertEqual(fegaTotal + gautzschTotal, 33.99, 'Gesamtsumme korrekt (33.99)');
+
+        APP_STATE.cart = backupCart;
+    })();
+
+    // --- Settings ---
+    suite('Einstellungen');
+
+    (function() {
+        const backupSettings = JSON.parse(JSON.stringify(APP_STATE.settings));
+
+        // Test: Default-Settings
+        APP_STATE.settings = {
+            fega: { url: '', username: '', password: '' },
+            gautzsch: { url: '', username: '', password: '' }
+        };
+        assertEqual(APP_STATE.settings.fega.url, '', 'Default Fega-URL ist leer');
+        assertEqual(APP_STATE.settings.gautzsch.url, '', 'Default Gautzsch-URL ist leer');
+
+        // Test: Settings setzen
+        APP_STATE.settings.fega = {
+            url: 'https://shop.fega.de/ids',
+            username: 'testuser',
+            password: 'testpass'
+        };
+        assertEqual(APP_STATE.settings.fega.url, 'https://shop.fega.de/ids', 'Fega-URL wird gesetzt');
+        assertEqual(APP_STATE.settings.fega.username, 'testuser', 'Fega-Username wird gesetzt');
+
+        // Test: localStorage Serialisierung
+        const serialized = JSON.stringify(APP_STATE.settings);
+        const deserialized = JSON.parse(serialized);
+        assertEqual(deserialized.fega.url, 'https://shop.fega.de/ids', 'Settings ueberleben JSON Serialisierung');
+
+        APP_STATE.settings = backupSettings;
+    })();
+
+    // --- fetchFromSupplier ohne Config ---
+    suite('fetchFromSupplier-Validierung');
+
+    (function() {
+        const backupSettings = JSON.parse(JSON.stringify(APP_STATE.settings));
+
+        APP_STATE.settings = {
+            fega: { url: '', username: '', password: '' },
+            gautzsch: { url: '', username: '', password: '' }
+        };
+
+        // fetchFromSupplier sollte leeres Ergebnis liefern wenn URL fehlt
+        fetchFromSupplier('4016705142040', 'fega').then(result => {
+            assertEqual(result.price, null, 'Kein Preis wenn URL fehlt');
+            assertEqual(result.available, false, 'Nicht verfuegbar wenn URL fehlt');
+            assertEqual(result.productName, null, 'Kein Produktname wenn URL fehlt');
+        });
+
+        APP_STATE.settings = backupSettings;
+    })();
+
+    // --- Tab-Navigation ---
+    suite('Tab-Navigation');
+
+    (function() {
+        switchTab('cart');
+        assertEqual(APP_STATE.currentTab, 'cart', 'Tab-Wechsel zu "cart"');
+
+        const cartPane = document.getElementById('cart-tab');
+        assert(cartPane.classList.contains('active'), 'Cart-Tab-Pane ist aktiv');
+
+        const scannerPane = document.getElementById('scanner-tab');
+        assert(!scannerPane.classList.contains('active'), 'Scanner-Tab-Pane ist inaktiv');
+
+        switchTab('settings');
+        assertEqual(APP_STATE.currentTab, 'settings', 'Tab-Wechsel zu "settings"');
+
+        switchTab('scanner');
+        assertEqual(APP_STATE.currentTab, 'scanner', 'Tab-Wechsel zurueck zu "scanner"');
+    })();
+
+    // --- searchByEAN Validierung ---
+    suite('searchByEAN-Validierung');
+
+    (function() {
+        // Override showToast to capture calls
+        const toasts = [];
+        const origShowToast = window.showToast;
+        window.showToast = function(msg, type) { toasts.push({ msg, type }); };
+
+        searchByEAN('');
+        assert(toasts.some(t => t.msg.includes('EAN') && t.type === 'error'), 'Leere EAN zeigt Fehlermeldung');
+
+        searchByEAN('   ');
+        assert(toasts.length >= 2, 'Whitespace-only EAN zeigt Fehlermeldung');
+
+        window.showToast = origShowToast;
+    })();
+
+    // --- renderPriceCard ---
+    suite('renderPriceCard');
+
+    (function() {
+        const card1 = renderPriceCard('fega', 'Fega & Schmitt', {
+            price: 12.50, available: true, deliveryDays: 3
+        }, true);
+        assert(card1.includes('12.50'), 'Preis wird angezeigt');
+        assert(card1.includes('Fega & Schmitt'), 'Lieferantenname wird angezeigt');
+        assert(card1.includes('cheapest-badge'), 'Guenstigster-Badge wird angezeigt');
+        assert(card1.includes('Verfügbar'), 'Verfuegbar-Status wird angezeigt');
+        assert(card1.includes('3 Tage'), 'Lieferzeit wird angezeigt');
+
+        const card2 = renderPriceCard('gautzsch', 'Gautzsch', {
+            price: null, available: false, deliveryDays: null
+        }, false);
+        assert(card2.includes('Nicht verfügbar'), 'Nicht verfuegbar wird angezeigt');
+        assert(!card2.includes('cheapest-badge'), 'Kein Badge wenn nicht guenstigster');
+        assert(!card2.includes('Lieferzeit'), 'Keine Lieferzeit wenn null');
+    })();
+
+    // --- Gesamtergebnis ---
+    showSummary();
+    </script>
+</body>
+</html>

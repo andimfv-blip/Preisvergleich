@@ -1,0 +1,41 @@
+{
+  "name": "Großhandelsvergleich - Fega & Schmitt vs Gautzsch",
+  "short_name": "Preisvergleich",
+  "description": "Barcode-Scanner und Preisvergleich für Großhändler",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#2563eb",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["business", "productivity"],
+  "shortcuts": [
+    {
+      "name": "Scanner öffnen",
+      "short_name": "Scanner",
+      "description": "Barcode scannen",
+      "url": "/?tab=scanner",
+      "icons": [{ "src": "icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Bestellliste",
+      "short_name": "Bestellliste",
+      "description": "Bestellliste anzeigen",
+      "url": "/?tab=cart",
+      "icons": [{ "src": "icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}
