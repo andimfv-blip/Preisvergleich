@@ -196,7 +196,7 @@ async function searchByEAN(ean) {
 
 async function fetchFromSupplier(ean, supplier) {
     const config = APP_STATE.settings[supplier];
-    
+
     if (!config.url || !config.username || !config.password) {
         return {
             productName: null,
@@ -207,35 +207,16 @@ async function fetchFromSupplier(ean, supplier) {
             articleNumber: null
         };
     }
-    
-    const xmlRequest = `<?xml version="1.0" encoding="UTF-8"?>
-<IDS version="1.0">
-    <REQUEST>
-        <ARTICLE_SEARCH>
-            <EAN>${ean}</EAN>
-        </ARTICLE_SEARCH>
-    </REQUEST>
-</IDS>`;
-    
+
     try {
-        const targetUrl = config.url + '/search';
-        const response = await fetchWithCorsProxy(targetUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/xml',
-                'Accept': 'application/xml',
-                'Authorization': 'Basic ' + btoa(config.username + ':' + config.password)
-            },
-            body: xmlRequest
-        });
-        
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
+        // Fega uses Cloudflare Worker proxy (no IDS-XML API)
+        if (supplier === 'fega') {
+            return await fetchFromFegaWorker(ean, config);
         }
-        
-        const xmlText = await response.text();
-        return parseXMLResponse(xmlText);
-        
+
+        // Other suppliers use IDS-XML API
+        return await fetchFromIDSXML(ean, config);
+
     } catch (error) {
         console.error(`Error fetching from ${supplier}:`, error);
         return {
@@ -247,6 +228,52 @@ async function fetchFromSupplier(ean, supplier) {
             articleNumber: null
         };
     }
+}
+
+async function fetchFromFegaWorker(ean, config) {
+    const workerUrl = new URL('/search', config.url);
+    workerUrl.searchParams.set('ean', ean);
+    workerUrl.searchParams.set('supplier', 'fega');
+    workerUrl.searchParams.set('username', config.username);
+    workerUrl.searchParams.set('password', config.password);
+
+    const response = await fetch(workerUrl.toString());
+
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP ${response.status}`);
+    }
+
+    return await response.json();
+}
+
+async function fetchFromIDSXML(ean, config) {
+    const xmlRequest = `<?xml version="1.0" encoding="UTF-8"?>
+<IDS version="1.0">
+    <REQUEST>
+        <ARTICLE_SEARCH>
+            <EAN>${ean}</EAN>
+        </ARTICLE_SEARCH>
+    </REQUEST>
+</IDS>`;
+
+    const targetUrl = config.url + '/search';
+    const response = await fetchWithCorsProxy(targetUrl, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/xml',
+            'Accept': 'application/xml',
+            'Authorization': 'Basic ' + btoa(config.username + ':' + config.password)
+        },
+        body: xmlRequest
+    });
+
+    if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+    }
+
+    const xmlText = await response.text();
+    return parseXMLResponse(xmlText);
 }
 
 function parseXMLResponse(xmlText) {
