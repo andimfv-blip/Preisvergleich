@@ -115,6 +115,35 @@ function onScanError(error) {
 }
 
 // ========================================
+// CORS Proxy
+// ========================================
+
+const CORS_PROXIES = [
+    'https://corsproxy.io/?url=',
+    'https://api.allorigins.win/raw?url=',
+];
+
+let activeCorsProxy = CORS_PROXIES[0];
+
+async function fetchWithCorsProxy(url, options) {
+    for (let i = 0; i < CORS_PROXIES.length; i++) {
+        const proxy = CORS_PROXIES[i];
+        try {
+            const proxiedUrl = proxy + encodeURIComponent(url);
+            const response = await fetch(proxiedUrl, options);
+            if (response.ok) {
+                activeCorsProxy = proxy;
+                return response;
+            }
+        } catch (e) {
+            console.warn(`CORS proxy ${proxy} failed, trying next...`);
+        }
+    }
+    // Letzter Versuch: direkt ohne Proxy
+    return fetch(url, options);
+}
+
+// ========================================
 // Product Search & Price Comparison
 // ========================================
 
@@ -189,7 +218,8 @@ async function fetchFromSupplier(ean, supplier) {
 </IDS>`;
     
     try {
-        const response = await fetch(config.url + '/search', {
+        const targetUrl = config.url + '/search';
+        const response = await fetchWithCorsProxy(targetUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/xml',
