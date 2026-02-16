@@ -89,61 +89,53 @@ async function searchFega(ean, sessionCookie) {
 }
 
 // Parse product data from Fega HTML response
+// Real format of data-addtobasket:
+//   "054678|MC_1_215555422|||||0.1800|0||kzrume:0,verf_zl:4000,preis-vk:18"
+// Fields are pipe-separated, key-value metadata is comma-separated in the last field.
 function parseProductFromHTML(html, ean) {
   const products = [];
 
-  // Match all data-addtobasket attributes
-  // Format: "artikelnummer|...|preis-vk:XX|...|verf_zl:XXXX|..."
   const addToBasketRegex = /data-addtobasket="([^"]+)"/g;
   let match;
 
   while ((match = addToBasketRegex.exec(html)) !== null) {
     const data = match[1];
-    const fields = data.split('|');
+    const pipeFields = data.split('|');
 
-    const articleNumber = fields[0] || null;
+    const articleNumber = pipeFields[0] || null;
 
-    // Extract preis-vk
+    // The last non-empty pipe field contains comma-separated key:value pairs
+    // e.g. "kzrume:0,verf_zl:4000,preis-vk:18"
+    const kvString = pipeFields[pipeFields.length - 1] || '';
+    const kvPairs = {};
+    for (const part of kvString.split(',')) {
+      const colonIdx = part.indexOf(':');
+      if (colonIdx > 0) {
+        kvPairs[part.substring(0, colonIdx)] = part.substring(colonIdx + 1);
+      }
+    }
+
+    // Extract price
     let price = null;
-    const priceField = fields.find(f => f.startsWith('preis-vk:'));
-    if (priceField) {
-      const priceStr = priceField.split(':')[1];
-      price = parseFloat(priceStr.replace(',', '.'));
+    if (kvPairs['preis-vk']) {
+      price = parseFloat(kvPairs['preis-vk'].replace(',', '.'));
       if (isNaN(price)) price = null;
     }
 
-    // Extract verf_zl (Verfuegbarkeit/Zulauf)
-    let available = false;
-    const verfField = fields.find(f => f.startsWith('verf_zl:'));
-    if (verfField) {
-      const verfValue = verfField.split(':')[1];
-      // verf_zl > 0 means stock available
-      available = parseInt(verfValue) > 0;
-    }
-
-    // Also check verf_lg (Lagerbestand)
-    const verfLgField = fields.find(f => f.startsWith('verf_lg:'));
-    if (verfLgField) {
-      const verfLgValue = verfLgField.split(':')[1];
-      if (parseInt(verfLgValue) > 0) {
-        available = true;
-      }
-    }
+    // Extract availability from verf_zl (Zulauf) and verf_lg (Lager)
+    const verfZl = parseInt(kvPairs['verf_zl'] || '0');
+    const verfLg = parseInt(kvPairs['verf_lg'] || '0');
+    const available = verfZl > 0 || verfLg > 0;
 
     products.push({ articleNumber, price, available });
   }
 
-  // Try to find product name from HTML near the matched product
+  // Extract product name from <p class="bold nomargin"> or <div class="art-name bold">
   let productName = null;
-
-  // Look for product description - common patterns in shop HTML
-  // Try <div class="artbez"> or similar
   const namePatterns = [
-    /<div[^>]*class="[^"]*artbez[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
-    /<span[^>]*class="[^"]*artbez[^"]*"[^>]*>([\s\S]*?)<\/span>/i,
-    /<td[^>]*class="[^"]*artbez[^"]*"[^>]*>([\s\S]*?)<\/td>/i,
-    /<div[^>]*class="[^"]*bezeichnung[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
-    /<h[1-6][^>]*class="[^"]*product[^"]*"[^>]*>([\s\S]*?)<\/h[1-6]>/i,
+    /<p[^>]*class="bold nomargin"[^>]*>([\s\S]*?)<\/p>/i,
+    /<div[^>]*class="art-name[^"]*bold[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
+    /<div[^>]*class="art-name[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
   ];
 
   for (const pattern of namePatterns) {
@@ -154,27 +146,11 @@ function parseProductFromHTML(html, ean) {
     }
   }
 
-  // Fallback: try to find text near the EAN or article number
-  if (!productName && products.length > 0) {
-    const artNr = products[0].articleNumber;
-    if (artNr) {
-      // Look for text near the article number
-      const nearArtRegex = new RegExp(
-        `(?:<[^>]*>\\s*)?${artNr}[^<]*<[^>]*>\\s*([^<]+)`,
-        'i'
-      );
-      const nearMatch = html.match(nearArtRegex);
-      if (nearMatch) {
-        productName = nearMatch[1].trim();
-      }
-    }
-  }
-
   if (products.length === 0) {
     return null;
   }
 
-  // Return first product found (most relevant for EAN search)
+  // Return first product (most relevant for EAN search)
   const product = products[0];
   return {
     productName: productName || 'Artikel ' + (product.articleNumber || ean),
