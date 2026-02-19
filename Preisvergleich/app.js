@@ -209,12 +209,12 @@ async function fetchFromSupplier(ean, supplier) {
     }
 
     try {
-        // Fega uses Cloudflare Worker proxy (no IDS-XML API)
-        if (supplier === 'fega') {
-            return await fetchFromFegaWorker(ean, config);
+        // Both suppliers use the Cloudflare Worker proxy
+        if (supplier === 'fega' || supplier === 'gautzsch') {
+            return await fetchFromWorker(ean, config, supplier);
         }
 
-        // Other suppliers use IDS-XML API
+        // Fallback: IDS-XML API
         return await fetchFromIDSXML(ean, config);
 
     } catch (error) {
@@ -230,10 +230,10 @@ async function fetchFromSupplier(ean, supplier) {
     }
 }
 
-async function fetchFromFegaWorker(ean, config) {
+async function fetchFromWorker(ean, config, supplier) {
     const workerUrl = new URL('/search', config.url);
     workerUrl.searchParams.set('ean', ean);
-    workerUrl.searchParams.set('supplier', 'fega');
+    workerUrl.searchParams.set('supplier', supplier);
     workerUrl.searchParams.set('username', config.username);
     workerUrl.searchParams.set('password', config.password);
 
@@ -363,8 +363,12 @@ function displayComparison(comparison) {
 }
 
 function renderPriceCard(id, name, data, isCheapest) {
-    const priceDisplay = data.price !== null ? 
-        `<div class="price ${id}">${data.price.toFixed(2)} €</div>` :
+    let priceLabel = '';
+    if (data.price !== null && data.priceUnit && data.priceUnit !== 1) {
+        priceLabel = ` / ${data.priceUnit} ${data.priceQuantityUnit || ''}`.trimEnd();
+    }
+    const priceDisplay = data.price !== null ?
+        `<div class="price ${id}">${data.price.toFixed(2)} €${priceLabel}</div>` :
         `<div class="price unavailable">Nicht verfügbar</div>`;
     
     const availabilityClass = data.available ? 'available' : 'unavailable';
